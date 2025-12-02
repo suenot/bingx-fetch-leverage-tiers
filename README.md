@@ -171,7 +171,7 @@ Since BingX has no `/leverageBracket` endpoint, the library uses **probing**:
 
 ```bash
 # Clone repository
-git clone https://github.com/suenot/bingx-leverages
+git clone https://github.com/suenot/bingx-fetch-leverage-tiers
 cd bingx-leverages
 
 # Install with dev dependencies

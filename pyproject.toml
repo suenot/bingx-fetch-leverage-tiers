@@ -48,9 +48,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/suenot/bingx-leverages"
-Repository = "https://github.com/suenot/bingx-leverages"
-Documentation = "https://github.com/suenot/bingx-leverages#readme"
+Homepage = "https://github.com/suenot/bingx-fetch-leverage-tiers"
+Repository = "https://github.com/suenot/bingx-fetch-leverage-tiers"
+Documentation = "https://github.com/suenot/bingx-fetch-leverage-tiers#readme"
 
 [project.scripts]
 bingx-leverages = "bingx_leverages.__main__:main"
