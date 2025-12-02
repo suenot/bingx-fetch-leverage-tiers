@@ -1,174 +1,186 @@
-# BingX Leverage Tiers Fetcher
+# bingx-leverages
 
-Fetch leverage bracket/tier data for BingX perpetual futures contracts.
+[![PyPI version](https://badge.fury.io/py/bingx-leverages.svg)](https://badge.fury.io/py/bingx-leverages)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Problem**: BingX lacks a dedicated leverage bracket endpoint (unlike Binance `/leverageBracket` or Bybit). This tool discovers tier boundaries by probing the API.
+Discover leverage tiers for BingX perpetual futures contracts.
+
+**Problem**: BingX lacks a dedicated leverage bracket endpoint (unlike Binance `/leverageBracket` or Bybit). This library discovers tier boundaries by probing the API.
+
+## Installation
+
+```bash
+pip install bingx-leverages
+```
+
+## Quick Start
+
+```python
+from bingx_leverages import BingXClient
+
+# Initialize client with API keys
+client = BingXClient(
+    api_key="your_api_key",
+    api_secret="your_api_secret"
+)
+
+# Discover leverage tiers for BTC-USDT
+tiers = client.discover_leverage_tiers("BTC-USDT")
+
+for tier in tiers:
+    print(f"{tier['leverage']}X: max {tier['max_position_val']:,} USDT")
+```
+
+Output:
+```
+150X: max 300,000 USDT
+100X: max 800,000 USDT
+75X: max 3,000,000 USDT
+...
+```
 
 ## Features
 
 - Discover leverage tiers via API probing
 - Reference data from BingX website (15 trading pairs)
-- Validation tests to compare API vs website data
-- Contract information, market data, funding rates
+- Validation tools to compare API vs reference data
+- Public endpoints for contract info, market data, funding rates
 
 ## Supported Trading Pairs
 
 Reference data available for:
-`BTC`, `ETH`, `SOL`, `BNB`, `XRP`, `ADA`, `DOGE`, `LTC`, `AVAX`, `LINK`, `UNI`, `ATOM`, `SHIB`, `OP`, `AR`
+`BTC`, `ETH`, `SOL`, `BNB`, `XRP`, `ADA`, `DOGE`, `LTC`, `AVAX`, `LINK`, `UNI`, `ATOM`, `SHIB`, `OP`, `AR` (all USDT pairs)
 
-## Installation
+```python
+from bingx_leverages import get_supported_symbols
 
-```bash
-pip install -r requirements.txt
+print(get_supported_symbols())
+# ['ADA-USDT', 'AR-USDT', 'ATOM-USDT', 'AVAX-USDT', 'BNB-USDT', ...]
 ```
 
 ## Configuration
 
-Create `.env` file:
+Set API keys via environment variables or pass directly:
 
-```env
-# Required for tier discovery
-BINGX_API_KEY=your_api_key_here
-BINGX_API_SECRET=your_api_secret_here
+```python
+# Option 1: Environment variables
+import os
+os.environ["BINGX_API_KEY"] = "your_key"
+os.environ["BINGX_API_SECRET"] = "your_secret"
 
-# Optional
-SYMBOL=BTC-USDT
-BINGX_BASE_URL=https://open-api.bingx.com
+client = BingXClient()
+
+# Option 2: Direct parameters
+client = BingXClient(api_key="your_key", api_secret="your_secret")
 ```
 
 Get API keys at: https://bingx.com/en/account/api/
 
-## Usage
-
-### Fetch Leverage Data
+## Command Line Usage
 
 ```bash
-# Use default symbol (ETH-USDT)
-python main.py
+# Fetch leverage data for a symbol
+python -m bingx_leverages BTC-USDT
 
-# Specify symbol
-python main.py BTC-USDT
-python main.py SOL-USDT
+# List supported symbols
+python -m bingx_leverages --list
+
+# Validate against reference data
+python -m bingx_leverages --validate BTC-USDT
 ```
 
-### Run Validation Tests
+Or use the installed command:
 
 ```bash
-# Test specific symbols
-python test_leverage_tiers.py BTC-USDT ETH-USDT
+bingx-leverages BTC-USDT
+bingx-leverages --list
+```
 
-# Test all 15 reference symbols
-python test_leverage_tiers.py
+## API Reference
 
-# Quick test (less verbose)
-python test_leverage_tiers.py -q BTC-USDT
+### BingXClient
 
-# Offline validation (check CSV data integrity)
-python test_leverage_tiers.py --offline
+```python
+from bingx_leverages import BingXClient
+
+client = BingXClient(api_key="...", api_secret="...")
+
+# Discover leverage tiers (requires auth)
+tiers = client.discover_leverage_tiers("BTC-USDT")
+
+# Public endpoints (no auth required)
+contracts = client.get_contracts()
+ticker = client.get_ticker("BTC-USDT")
+funding = client.get_funding_rate("BTC-USDT")
+depth = client.get_depth("BTC-USDT", limit=20)
+
+# Private endpoints (require auth)
+balance = client.get_account_balance()
+positions = client.get_positions()
+leverage = client.get_leverage("BTC-USDT")
+```
+
+### Reference Data
+
+```python
+from bingx_leverages import (
+    get_reference_tiers,
+    get_supported_symbols,
+    REFERENCE_TIERS
+)
+
+# Get reference tiers for a symbol
+tiers = get_reference_tiers("BTC-USDT")
+# [(1, 0, 300000, 150), (2, 300000, 800000, 100), ...]
+
+# All reference data
+print(REFERENCE_TIERS.keys())
+```
+
+### Validation
+
+```python
+from bingx_leverages import BingXClient, validate_symbol
+
+client = BingXClient(api_key="...", api_secret="...")
+results = validate_symbol(client, "BTC-USDT")
+
+print(f"Accuracy: {results['boundary_matches']}/{results['total_boundaries']}")
 ```
 
 ## How It Works
 
-Since BingX has no `/leverageBracket` endpoint, the tool uses **probing**:
+Since BingX has no `/leverageBracket` endpoint, the library uses **probing**:
 
 1. Calls `set_leverage` with different values (150, 125, 100, 75, ... 1)
 2. API returns `maxPositionLongVal` - max position size for that leverage
-3. When `maxPositionLongVal` changes, we've found a tier boundary
+3. When `maxPositionLongVal` changes, a tier boundary is found
 4. Original leverage is restored after probing
 
-**Safe**: No orders created, only leverage setting is temporarily changed.
-
-## Data Structure
-
-### Reference Data (tiers_from_website.csv)
-
-```
-Pair,Tier,Position (Notional Value),Max. Leverage
-BTCUSDT,Tier 1,0 ~ 300000,150X
-BTCUSDT,Tier 2,300000 ~ 800000,100X
-...
-```
-
-### Discovered Tier Format
-
-```python
-{
-    'leverage': 150,
-    'max_position_val': 300000.0
-}
-```
-
-## Example Output
-
-```
-======================================================================
-4. POSITION & LEVERAGE TIERS
-======================================================================
-Discovering leverage tiers by probing...
-
-Tier     Position (Notional Value)           Max Leverage
-------------------------------------------------------------
-Tier 1            0 ~ 300,000                 150X
-Tier 2      300,000 ~ 800,000                 100X
-Tier 3      800,000 ~ 3,000,000               75X
-...
-```
-
-## Test Results
-
-Test output shows match quality:
-
-```
-COMPARISON: BTC-USDT
-======================================================================
-Expected tiers: 12, Discovered: 12
-
-EXACT MATCHES (10):
-  Tier  1 | 150X |            0 ~ 300,000
-  Tier  2 | 100X |      300,000 ~ 800,000
-  ...
-
-CLOSE MATCHES (2):
-  Tier 11 |   2X
-         Expected:      800,000,000 ~ 1,200,000,000
-         Discovered:    805,000,000 ~ 1,205,000,000
-         Diff: floor=5,000,000, cap=5,000,000
-
-ACCURACY SUMMARY:
-   Exact matches:   10/12 (83.3%)
-   Close matches:    2/12 (16.7%)
-   Total matched:   12/12 (100.0%)
-```
+**Safe**: No orders are created, only leverage setting is temporarily changed.
 
 ## Important Notes
 
-- **KYC/VIP affects leverage**: Unverified accounts may see lower max leverage (5X limit)
+- **KYC/VIP affects leverage**: Unverified accounts may see lower max leverage
 - **Data changes**: BingX updates tier boundaries based on market conditions
-- **API rate limits**: 10 req/s for trading endpoints; tests include delays
+- **API rate limits**: 10 req/s for trading endpoints
 - **Boundaries approximate**: API may return slightly different values than website
 
-## API Endpoints Used
+## Development
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /openApi/swap/v2/quote/contracts` | No | Contract info |
-| `GET /openApi/swap/v2/trade/leverage` | Yes | Current leverage |
-| `POST /openApi/swap/v2/trade/leverage` | Yes | Set leverage (for probing) |
+```bash
+# Clone repository
+git clone https://github.com/suenot/bingx-leverages
+cd bingx-leverages
 
-## Project Structure
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-```
-bingx-leverages/
-├── main.py                  # API client & tier discovery
-├── test_leverage_tiers.py   # Validation tests
-├── tiers_from_website.csv   # Reference data (15 pairs)
-├── requirements.txt
-├── .env                     # API keys (not in repo)
-└── README.md
+# Run tests
+python test_leverage_tiers.py --offline
 ```
 
-## References
+## License
 
-- [BingX API Documentation](https://bingx-api.github.io/docs/)
-- [BingX Trading Rules](https://bingx.com/en/tradeInfo/perpetual/margin/)
-- [Leverage Tiers Info](https://bingx.com/en/tradeInfo/perpetual/margin/ETH-USDT)
+MIT License - see [LICENSE](LICENSE) file.

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bingx-leverages"
+version = "0.1.0"
+description = "Discover leverage tiers for BingX perpetual futures contracts"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+    { name = "suenot" }
+]
+keywords = [
+    "bingx",
+    "leverage",
+    "futures",
+    "crypto",
+    "trading",
+    "api",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "python-dotenv>=1.0.0",
+    "pytest>=7.0.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/suenot/bingx-leverages"
+Repository = "https://github.com/suenot/bingx-leverages"
+Documentation = "https://github.com/suenot/bingx-leverages#readme"
+
+[project.scripts]
+bingx-leverages = "bingx_leverages.__main__:main"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/bingx_leverages",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["bingx_leverages"]
