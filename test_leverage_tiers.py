@@ -108,77 +108,91 @@ def compare_tiers(expected: List[Tuple], discovered: List[Tuple], symbol: str) -
     Compare expected vs discovered tiers and return detailed comparison results.
 
     Matching strategy:
-    1. Match by leverage value first (primary key)
-    2. Compare position boundaries with tolerance
+    1. Primary: Match by position boundaries (cap values)
+    2. Secondary: Compare leverage values for matched boundaries
     3. Track exact matches, close matches, and mismatches
     """
     results = {
         'symbol': symbol,
         'expected_count': len(expected),
         'discovered_count': len(discovered),
-        'exact_matches': [],      # Leverage + boundaries match exactly
-        'close_matches': [],      # Leverage matches, boundaries within tolerance
-        'mismatches': [],         # Leverage matches but boundaries differ significantly
+        'exact_matches': [],      # Boundaries + leverage match exactly
+        'close_matches': [],      # Boundaries match, leverage may differ
+        'mismatches': [],         # Boundaries don't match
         'missing_leverages': [],  # Expected leverage not found in discovered
         'extra_leverages': [],    # Discovered leverage not in expected
         'boundary_matches': 0,
         'total_boundaries': 0,
+        'boundary_exact': 0,      # Exact boundary matches
     }
 
-    # Extract all cap values (tier boundaries) from expected
-    expected_caps = set(t[2] for t in expected)
-    discovered_caps = set(t[2] for t in discovered)
-
-    # Count matching boundaries (with tolerance)
-    for exp_cap in expected_caps:
-        results['total_boundaries'] += 1
-        for disc_cap in discovered_caps:
-            tolerance = calculate_tolerance(exp_cap)
-            if abs(disc_cap - exp_cap) <= tolerance:
-                results['boundary_matches'] += 1
-                break
-
-    # Create lookup by leverage for discovered tiers
-    discovered_by_lev = {t[3]: t for t in discovered}
+    # Create lookup by cap for discovered tiers
+    discovered_by_cap = {t[2]: t for t in discovered}
     expected_by_lev = {t[3]: t for t in expected}
 
-    # Check each expected tier
+    # Match by boundary (cap value) - this is the primary matching strategy
     for exp in expected:
         tier_num, exp_floor, exp_cap, exp_lev = exp
+        results['total_boundaries'] += 1
 
-        if exp_lev in discovered_by_lev:
-            disc = discovered_by_lev[exp_lev]
-            disc_floor, disc_cap = disc[1], disc[2]
+        # Look for exact cap match first
+        if exp_cap in discovered_by_cap:
+            disc = discovered_by_cap[exp_cap]
+            disc_floor, disc_cap, disc_lev = disc[1], disc[2], disc[3]
+            results['boundary_exact'] += 1
+            results['boundary_matches'] += 1
 
-            # Calculate tolerances
-            floor_tolerance = calculate_tolerance(exp_floor) if exp_floor > 0 else 1000
-            cap_tolerance = calculate_tolerance(exp_cap)
-
-            floor_diff = abs(disc_floor - exp_floor)
-            cap_diff = abs(disc_cap - exp_cap)
-
-            # Check match quality
-            floor_exact = floor_diff == 0
-            cap_exact = cap_diff == 0
-            floor_close = floor_diff <= floor_tolerance
-            cap_close = cap_diff <= cap_tolerance
-
+            # Check if leverage also matches
             match_info = {
                 'tier': tier_num,
                 'leverage': exp_lev,
+                'discovered_leverage': disc_lev,
                 'expected': (exp_floor, exp_cap),
                 'discovered': (disc_floor, disc_cap),
-                'floor_diff': floor_diff,
-                'cap_diff': cap_diff,
+                'floor_diff': abs(disc_floor - exp_floor),
+                'cap_diff': 0,
+                'leverage_match': exp_lev == disc_lev,
             }
 
-            if floor_exact and cap_exact:
+            if exp_lev == disc_lev and disc_floor == exp_floor:
                 results['exact_matches'].append(match_info)
-            elif floor_close and cap_close:
-                results['close_matches'].append(match_info)
             else:
-                results['mismatches'].append(match_info)
+                results['close_matches'].append(match_info)
         else:
+            # Look for cap match within tolerance
+            found = False
+            for disc in discovered:
+                disc_floor, disc_cap, disc_lev = disc[1], disc[2], disc[3]
+                tolerance = calculate_tolerance(exp_cap)
+                if abs(disc_cap - exp_cap) <= tolerance:
+                    found = True
+                    results['boundary_matches'] += 1
+
+                    match_info = {
+                        'tier': tier_num,
+                        'leverage': exp_lev,
+                        'discovered_leverage': disc_lev,
+                        'expected': (exp_floor, exp_cap),
+                        'discovered': (disc_floor, disc_cap),
+                        'floor_diff': abs(disc_floor - exp_floor),
+                        'cap_diff': abs(disc_cap - exp_cap),
+                        'leverage_match': exp_lev == disc_lev,
+                    }
+                    results['close_matches'].append(match_info)
+                    break
+
+            if not found:
+                results['mismatches'].append({
+                    'tier': tier_num,
+                    'leverage': exp_lev,
+                    'expected': (exp_floor, exp_cap),
+                })
+
+    # Also track by leverage for backwards compatibility
+    discovered_by_lev = {t[3]: t for t in discovered}
+    for exp in expected:
+        tier_num, exp_floor, exp_cap, exp_lev = exp
+        if exp_lev not in discovered_by_lev:
             results['missing_leverages'].append({
                 'tier': tier_num,
                 'leverage': exp_lev,
@@ -212,35 +226,33 @@ def print_comparison_results(results: Dict, verbose: bool = True):
     extra = results['extra_leverages']
 
     if exact and verbose:
-        print(f"\n✓ EXACT MATCHES ({len(exact)}):")
+        print(f"\n✓ EXACT MATCHES ({len(exact)}) - boundary + leverage + floor match:")
         for m in exact:
             print(f"  Tier {m['tier']:>2} | {m['leverage']:>3}X | {m['expected'][0]:>12,} ~ {m['expected'][1]:,}")
 
     if close and verbose:
-        print(f"\n≈ CLOSE MATCHES ({len(close)}):")
+        print(f"\n≈ BOUNDARY MATCHES ({len(close)}) - cap matches, leverage may differ:")
         for m in close:
-            print(f"  Tier {m['tier']:>2} | {m['leverage']:>3}X")
-            print(f"         Expected:   {m['expected'][0]:>12,} ~ {m['expected'][1]:,}")
-            print(f"         Discovered: {m['discovered'][0]:>12,} ~ {m['discovered'][1]:,}")
-            print(f"         Diff: floor={m['floor_diff']:,}, cap={m['cap_diff']:,}")
+            lev_indicator = "✓" if m.get('leverage_match') else "≠"
+            disc_lev = m.get('discovered_leverage', '?')
+            print(f"  Tier {m['tier']:>2} | {m['leverage']:>3}X {lev_indicator} {disc_lev}X | cap={m['expected'][1]:,}")
+            if m['floor_diff'] > 0 or m['cap_diff'] > 0:
+                print(f"         floor diff: {m['floor_diff']:,}, cap diff: {m['cap_diff']:,}")
 
     if mismatches:
-        print(f"\n⚠ MISMATCHES ({len(mismatches)}):")
+        print(f"\n✗ NO BOUNDARY MATCH ({len(mismatches)}):")
         for m in mismatches:
-            print(f"  Tier {m['tier']:>2} | {m['leverage']:>3}X")
-            print(f"         Expected:   {m['expected'][0]:>12,} ~ {m['expected'][1]:,}")
-            print(f"         Discovered: {m['discovered'][0]:>12,} ~ {m['discovered'][1]:,}")
-            print(f"         Diff: floor={m['floor_diff']:,}, cap={m['cap_diff']:,}")
-
-    if missing:
-        print(f"\n✗ MISSING LEVERAGES ({len(missing)}):")
-        for m in missing:
             print(f"  Tier {m['tier']:>2} | {m['leverage']:>3}X | {m['expected'][0]:>12,} ~ {m['expected'][1]:,}")
 
-    if extra:
-        print(f"\n+ EXTRA LEVERAGES ({len(extra)}):")
+    if missing and verbose:
+        print(f"\n⚠ MISSING LEVERAGE VALUES ({len(missing)}):")
+        for m in missing:
+            print(f"  {m['leverage']:>3}X not found in API response")
+
+    if extra and verbose:
+        print(f"\n+ EXTRA LEVERAGE VALUES ({len(extra)}):")
         for m in extra:
-            print(f"         | {m['leverage']:>3}X | {m['discovered'][0]:>12,} ~ {m['discovered'][1]:,}")
+            print(f"  {m['leverage']:>3}X | {m['discovered'][0]:>12,} ~ {m['discovered'][1]:,}")
 
     # Summary
     total = results['expected_count']
@@ -250,15 +262,17 @@ def print_comparison_results(results: Dict, verbose: bool = True):
 
     print(f"\n{'─'*40}")
     print(f"📊 ACCURACY SUMMARY:")
-    print(f"   Exact matches:  {exact_count:>3}/{total} ({exact_count/total*100:.1f}%)" if total > 0 else "")
-    print(f"   Close matches:  {close_count:>3}/{total} ({close_count/total*100:.1f}%)" if total > 0 else "")
-    print(f"   Total matched:  {matched:>3}/{total} ({matched/total*100:.1f}%)" if total > 0 else "")
 
-    # Boundary accuracy
+    # Boundary accuracy (main metric)
     boundary_total = results['total_boundaries']
     boundary_matches = results['boundary_matches']
+    boundary_exact = results.get('boundary_exact', 0)
     boundary_acc = (boundary_matches / boundary_total * 100) if boundary_total > 0 else 0
-    print(f"   Boundary match: {boundary_matches:>3}/{boundary_total} ({boundary_acc:.1f}%)")
+
+    if total > 0:
+        print(f"   Boundary match: {boundary_matches:>3}/{boundary_total} ({boundary_acc:.1f}%) <- primary metric")
+        print(f"   Exact (all):    {exact_count:>3}/{total} ({exact_count/total*100:.1f}%)")
+        print(f"   Close (cap ok): {close_count:>3}/{total} ({close_count/total*100:.1f}%)")
 
 
 def run_tests(symbols: List[str] = None, delay: float = 0.5, verbose: bool = True):
@@ -289,14 +303,11 @@ def run_tests(symbols: List[str] = None, delay: float = 0.5, verbose: bool = Tru
         if lev_info.get('code') == 0 and 'data' in lev_info:
             current_lev = lev_info['data'].get('longLeverage', 10)
 
-        # Get expected leverage values for this symbol to ensure we probe all of them
-        expected_leverages = [t[3] for t in EXPECTED_TIERS[symbol]]
-
-        # Discover tiers using symbol-specific leverage values
+        # Discover tiers using default comprehensive probe values
+        # We don't pass probe_values to ensure all possible tiers are discovered
         tiers = client.discover_leverage_tiers(
             symbol,
-            restore_leverage=current_lev,
-            probe_values=expected_leverages
+            restore_leverage=current_lev
         )
 
         if not tiers:
